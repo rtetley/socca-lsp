@@ -1,0 +1,36 @@
+opam-version: "2.0"
+name: "vsrocq-language-server"
+maintainer: "Romain Tetley <romain.tetley@inria.fr>"
+authors: [ "Romain Tetley" ]
+license: "MIT"
+homepage: "https://github.com/rtetley/socca-lsp"
+bug-reports: "https://github.com/rtetley/socca-lsp/issues"
+
+build: [
+  [
+    "dune" "build" "-p" name "-j" jobs 
+  ]
+]
+depends: [
+  "ocaml" { >= "4.14" }
+  "dune" { >= "3.5" }
+  "yojson"
+  "jsonrpc" { >= "1.15"}
+  "ocamlfind"
+  "ppx_inline_test"
+  "ppx_assert"
+  "ppx_sexp_conv"
+  "ppx_deriving"
+  "sexplib"
+  "ppx_yojson_conv"
+  "ppx_import"
+  "ppx_optcomp"
+  "result" { >= "1.5" }
+  "lsp" { >= "1.15"}
+  "sel" {>= "0.6.0"}
+]
+synopsis: "SOCCA language server"
+available: arch != "arm32" & arch != "x86_32"
+description: """
+LSP based language template for OCaml languages
+"""

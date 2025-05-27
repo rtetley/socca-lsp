@@ -1,0 +1,11 @@
+(alias
+   (name default)
+    (deps socca-language-server.install))
+(env
+ (dev
+  (flags :standard -w -9 -warn-error -A))
+ (fatalwarnings     
+  (flags :standard -w -9 -warn-error +A))
+ (release     
+  (flags :standard -w -9))
+)
