@@ -59,6 +59,7 @@ type lsp_event =
 
 type event =
  | LspManagerEvent of lsp_event
+ | DocumentManagerEvent of DocumentManager.dm_event
  (* | Notification of notification *)
  (* | LogEvent of Common.Log.event *)
 
@@ -317,7 +318,7 @@ let handle_lsp_event = function
   | Send jsonrpc ->
     output_json (Jsonrpc.Packet.yojson_of_t jsonrpc); []
 
-let pr_lsp_event fmt = function
+let pp_lsp_event fmt = function
   | Receive jsonrpc ->
     Format.fprintf fmt "Request"
   | Send jsonrpc ->
@@ -325,6 +326,9 @@ let pr_lsp_event fmt = function
 
 let handle_event = function
   | LspManagerEvent e -> handle_lsp_event e
+  | DocumentManagerEvent e ->
+    let doc = assert false in
+    List.map (Sel.Event.map (fun e -> DocumentManagerEvent e)) (DocumentManager.handle_dm_event doc e)
   (* | Notification notification ->
     begin match notification with 
     | QueryResultNotification params ->
@@ -333,8 +337,9 @@ let handle_event = function
   | LogEvent e ->
     send_rocq_debug e; [inject_debug_event Common.Log.debug] *)
 
-let pr_event fmt = function
-  | LspManagerEvent e -> pr_lsp_event fmt e
+let pp_event fmt = function
+  | LspManagerEvent e -> pp_lsp_event fmt e
+  | DocumentManagerEvent e -> DocumentManager.pp_dm_event fmt e
   (* | Notification _ -> Format.fprintf fmt "notif"
   | LogEvent _ -> Format.fprintf fmt "debug" *)
 
