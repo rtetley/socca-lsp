@@ -1,0 +1,5 @@
+(lang dune 3.2)
+(name socca-lsp)
+(license LGPL-2.1-only)
+(authors "The Extended - VsRocq development team")
+(source (github rtetely/socca-lsp))

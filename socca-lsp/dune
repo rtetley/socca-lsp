@@ -1,0 +1,4 @@
+(executable
+ (name socca_lsp)
+ (flags -linkall)
+ (libraries sel yojson lsp))
