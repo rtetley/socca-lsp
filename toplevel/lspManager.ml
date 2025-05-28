@@ -59,7 +59,7 @@ type lsp_event =
 
 type event =
  | LspManagerEvent of lsp_event
- | DocumentManagerEvent of DocumentManager.dm_event
+ | DocumentManagerEvent of Dm.DocumentManager.dm_event
  (* | Notification of notification *)
  (* | LogEvent of Common.Log.event *)
 
@@ -328,7 +328,7 @@ let handle_event = function
   | LspManagerEvent e -> handle_lsp_event e
   | DocumentManagerEvent e ->
     let doc = assert false in
-    List.map (Sel.Event.map (fun e -> DocumentManagerEvent e)) (DocumentManager.handle_dm_event doc e)
+    List.map (Sel.Event.map (fun e -> DocumentManagerEvent e)) (Dm.DocumentManager.handle_dm_event doc e)
   (* | Notification notification ->
     begin match notification with 
     | QueryResultNotification params ->

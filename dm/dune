@@ -1,0 +1,3 @@
+(library
+ (name dm)
+ (libraries sel yojson lsp common camlp-streams str))

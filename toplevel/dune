@@ -5,4 +5,4 @@
  (public_name soccatop)
  (flags -linkall)
  (package socca-language-server)
- (libraries sel yojson lsp common))
+ (libraries sel yojson lsp common dm))
