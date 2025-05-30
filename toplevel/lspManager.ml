@@ -154,7 +154,8 @@ let inject_dm_event uri x = Sel.Event.map (fun e -> DocumentManagerEvent (uri, e
 let inject_dm_events uri events = List.map (inject_dm_event uri) events
 
 let open_new_document uri text =
-  let st, event = Dm.DocumentManager.create_document text in
+  let document, event = Dm.DocumentManager.create_document text in
+  let st = { document } in
   Hashtbl.add states (DocumentUri.to_path uri) { st ; visible = true; };
   update_view uri st;
   [inject_dm_event]
@@ -323,11 +324,6 @@ let pp_lsp_event fmt = function
   | Send jsonrpc ->
     Format.fprintf fmt "Send"
 
-type state = {
-  uri : DocumentUri.t;
-  document : Dm.DocumentManager.document;
-}
-
 type handled_event = {
     state : state option;
     events: event Sel.Event.t list;
@@ -335,7 +331,7 @@ type handled_event = {
     notification: Lsp.Server_notification.t option;
 }
 
-let handle_event ev st =
+let handle_event ev =
   match ev with
   | LspManagerEvent e -> handle_lsp_event e
   | DocumentManagerEvent (uri, e) ->
@@ -344,15 +340,18 @@ let handle_event ev st =
       log (fun () -> "ignoring event on non-existing document");
       []
     | Some { st; visible } ->
-    let document, events, result = Dm.DocumentManager.handle_dm_event st e in
-    begin match result with
-    | None ->
-      replace_state (DocumentUri.to_path uri) document visible;
-      inject_dm_events uri events
-    | Some new_doc ->
-      replace_state (DocumentUri.to_path uri) new_doc visible;
-      update_view uri st;
-      []
+      let document, events, result = Dm.DocumentManager.handle_dm_event st.document e in
+      begin match result with
+      | None ->
+        let state = { document } in
+        replace_state (DocumentUri.to_path uri) state visible;
+        inject_dm_events uri events
+      | Some new_doc ->
+        let state = { document = new_doc } in
+        replace_state (DocumentUri.to_path uri) state visible;
+        update_view uri st;
+        []
+      end
     end
   (* | Notification notification ->
     begin match notification with 
@@ -364,7 +363,7 @@ let handle_event ev st =
 
 let pp_event fmt = function
   | LspManagerEvent e -> pp_lsp_event fmt e
-  | DocumentManagerEvent e -> Dm.DocumentManager.pp_dm_event fmt e
+  | DocumentManagerEvent (_, e) -> Dm.DocumentManager.pp_dm_event fmt e
   (* | Notification _ -> Format.fprintf fmt "notif"
   | LogEvent _ -> Format.fprintf fmt "debug" *)
 

@@ -39,5 +39,11 @@ let loop () =
   with exn -> assert false
 
 let () =
+  (* HACK to be compatible with the current vsrocq extension *)
+  if Array.length (Sys.argv) > 1 then
+    if Sys.argv.(1) = "-where" then (Format.printf "/tmp@."; exit 0)
+    else if Sys.argv.(1) = "-v" then (
+      Format.printf "The Coq Proof Assistant, version 8.20.1\ncompiled with OCaml 5.3.0@."; exit 0);
+  (* end of HACK *)
   Sys.(set_signal sigint Signal_ignore);
   loop ()
