@@ -1,5 +1,7 @@
 type loc = Lsp.Types.Position.t
 
+let Common.Log.Log log = Common.Log.mk_log "documentManager"
+
 module Host = struct
   (* for now, dummy implementations *)
   
@@ -74,7 +76,7 @@ let handle_parse_begin ({ parsed_loc; raw_doc; cancel_handle } as document) =
   let text = RawDocument.text raw_doc in
   let stream = Stream.of_string text in
   while Stream.count stream < stop do Stream.junk stream done;
-  (* log (fun () -> Format.sprintf "Parsing more from pos %i" stop); *)
+  log (fun () -> Format.sprintf "Parsing more from pos %i" stop);
   let started = Unix.gettimeofday () in
   let parsed_state = {stop; stream; raw=raw_doc; parsed=[]; loc=None; started; previous_document=document} in
   let priority = Some Common.PriorityManager.parsing in
@@ -90,11 +92,21 @@ let handle_parse_more (st : parse_state) : dm_event =
     (* finished *)
     ParseEnd st
 
-let validate (old_valid:document) (doc:Host.ast list) : document =
-  assert false
+(* let validate (st:parse_state) (doc:document) : document =
+  doc *)
 
-let handle_parse_end (old_valid:Host.valid_doc) (doc:Host.ast list) : Host.valid_doc =
-  validate old_valid doc
+let pos_at_end parsed =
+  match LM.max_binding_opt parsed.sentences_by_end with
+  | Some (stop, _) -> stop
+  | None -> -1
+
+let handle_parse_end {started} (doc:document) : document =
+  let end_ = Unix.gettimeofday ()in
+  let time = end_ -. started in
+  log (fun () -> Format.sprintf "Parsing phase ended in %5.3f\n%!" time);
+  let parsed_loc = pos_at_end doc in
+  let parsed_document = {doc with parsed_loc} in
+  parsed_document
 
 let handle_dm_event doc e : document * dm_event Sel.Event.t list * document option =
   match e with
@@ -106,5 +118,19 @@ let handle_dm_event doc e : document * dm_event Sel.Event.t list * document opti
     let event = handle_parse_more st in
     doc, [Sel.now ?priority event], None
   | ParseEnd st ->
-    let valid_doc = handle_parse_end st in
+    let valid_doc = handle_parse_end st doc in
     doc, [], Some valid_doc
+
+let create_document text =
+  let raw_doc = RawDocument.create text in
+  let doc =
+    { 
+      parsed_loc = -1;
+      raw_doc;
+      sentences_by_end = LM.empty;
+      cancel_handle = None;
+    }
+  in
+  let priority = Some Common.PriorityManager.launch_parsing in
+  let event = Sel.now ?priority ParseBegin in
+  doc, event
