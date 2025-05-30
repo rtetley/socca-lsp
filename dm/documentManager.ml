@@ -14,8 +14,13 @@ module Host = struct
       match Stream.next stream with
       | exception Stream.Failure (* end of file *) -> None
       | ' ' ->
-        let nb_newline = List.length (String.split_on_char '\n' acc) in
-        let nb_char = String.length acc - String.rindex acc '\n' in
+        let nb_newline = List.length (String.split_on_char '\n' acc) - 1 in
+        let nb_char =
+        if 0 < nb_newline then
+          String.length acc - String.rindex acc '\n'
+        else
+          String.length acc
+        in
         let loc =
           match start with
           | None -> Lsp.Types.Position.{ character = nb_char; line = nb_newline }
@@ -134,3 +139,14 @@ let create_document text =
   let priority = Some Common.PriorityManager.launch_parsing in
   let event = Sel.now ?priority ParseBegin in
   doc, event
+
+let apply_text_edit document edit =
+  let raw_doc, start = RawDocument.apply_text_edit document.raw_doc edit in
+  let parsed_loc = min document.parsed_loc start in
+  { document with raw_doc; parsed_loc }
+
+let apply_text_edits document edits =
+  let document = List.fold_left apply_text_edit document edits in
+  let priority = Some Common.PriorityManager.launch_parsing in
+  let sel_event = Sel.now ?priority ParseBegin in
+  document, [sel_event]

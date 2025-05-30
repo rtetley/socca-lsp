@@ -1,8 +1,5 @@
-
 type 'a log = Log : 'a -> 'a log
 
-type event = string
-type events = event Sel.Event.t list
 let lsp_initialization_done = ref false
 let initialization_feedback_queue = Queue.create ()
 
@@ -24,12 +21,15 @@ let write_to_init_log str =
 
 let rec is_enabled name = function
   | [] -> false
-  | "-socca-log" :: "all" :: _ -> true
-  | "-socca-log" :: v :: rest ->
+  | "--socca-log" :: "all" :: _ -> true
+  | "--socca-log" :: v :: rest ->
     List.mem name (String.split_on_char ',' v) || is_enabled name rest
   | _ :: rest -> is_enabled name rest
 
 let logs = ref []
+
+type event = string
+type events = event Sel.Event.t list
 
 let handle_event s = Printf.eprintf "%s\n" s
 
@@ -72,15 +72,15 @@ let install_debug_feedback f =
     match lvl, loc with
     | Feedback.Debug,None -> f Hpp.(string_of_ppcmds m)
     | _ -> ()) *)
-(*
+
 (* We go through a queue in case we receive a debug feedback from Rocq before we
    replied to Initialize *)
 let rocq_debug_feedback_queue = Queue.create ()
-let main_debug_feeder = install_debug_feedback (fun txt -> Queue.push txt rocq_debug_feedback_queue)
-   
+(*let main_debug_feeder = install_debug_feedback (fun txt -> Queue.push txt rocq_debug_feedback_queue) *)
+
 let debug : event Sel.Event.t =
   Sel.On.queue ~name:"debug" ~priority:PriorityManager.feedback rocq_debug_feedback_queue (fun x -> x)
-let cancel_debug_event = Sel.Event.get_cancellation_handle debug
+(* let cancel_debug_event = Sel.Event.get_cancellation_handle debug *)
 
 let lsp_initialization_done () =
   lsp_initialization_done := true;
@@ -89,6 +89,7 @@ let lsp_initialization_done () =
   Queue.clear initialization_feedback_queue;
   [debug]
 
+(*
 let worker_initialization_begins () =
   Sel.Event.cancel cancel_debug_event;
   Feedback.del_feeder main_debug_feeder;

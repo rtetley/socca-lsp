@@ -14,7 +14,7 @@
 
 (** This toplevel implements an LSP-based server template for languages in OCaml. *)
 
-let log f = ()
+let Common.Log.Log log = Common.Log.mk_log "soccatop"
 
 let loop () =
   let events = LspManager.init () in
@@ -36,7 +36,8 @@ let loop () =
   in
   let todo = Sel.Todo.add Sel.Todo.empty events in
   try loop todo
-  with exn -> assert false
+  with exn ->
+    log ~force:true (fun () -> Format.asprintf "%s@." (Printexc.get_backtrace ()))
 
 let () =
   (* HACK to be compatible with the current vsrocq extension *)
@@ -45,5 +46,7 @@ let () =
     else if Sys.argv.(1) = "-v" then (
       Format.printf "The Coq Proof Assistant, version 8.20.1\ncompiled with OCaml 5.3.0@."; exit 0);
   (* end of HACK *)
+  (* HACK: to be sure backtraces are recorded *)
+  Printexc.record_backtrace true;
   Sys.(set_signal sigint Signal_ignore);
   loop ()
