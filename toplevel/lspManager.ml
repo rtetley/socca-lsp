@@ -18,33 +18,25 @@
 
 open Lsp.Types
 
-let log f = ()
+let Common.Log.Log log = Common.Log.mk_log "lspManager"
 
 type error = {
   code: Jsonrpc.Response.Error.Code.t option;
   message: string;
 }
 
-module State = struct
-  type t = {
-    text: string
-  }
-end
-
 type packed = Pack : 'a Lsp.Client_request.t -> packed
 
-let init_state : State.t option ref = ref None
-let get_init_state () =
-  match !init_state with
-  | Some st -> st
-  | None -> assert false
+type state = {
+  document : Dm.DocumentManager.document;
+}
 
-type tab = { st : State.t ; visible : bool }
+type tab = {
+  st : state;
+  visible : bool
+}
 
 let states : (string, tab) Hashtbl.t = Hashtbl.create 39
-
-
-(* let Common.Types.Log log = Common.Log.mk_log "lspManager" *)
 
 let conf_request_id = max_int
 
@@ -59,8 +51,9 @@ type lsp_event =
 
 type event =
  | LspManagerEvent of lsp_event
+ | DocumentManagerEvent of DocumentUri.t * Dm.DocumentManager.dm_event
  (* | Notification of notification *)
- (* | LogEvent of Common.Log.event *)
+ | LogEvent of Common.Log.event
 
 type events = event Sel.Event.t list
 
@@ -97,6 +90,17 @@ let send_configuration_request () =
   let req = Lsp.Server_request.(to_jsonrpc_request (WorkspaceConfiguration { items }) ~id) in
   Send (Request req)
 
+(*
+let inject_em_event x = Sel.Event.map (fun e -> ExecutionManagerEvent e) x
+let inject_em_events events = List.map inject_em_event events *)
+let inject_dm_event uri x = Sel.Event.map (fun e -> DocumentManagerEvent (uri, e)) x
+let inject_dm_events uri events = List.map (inject_dm_event uri) events
+
+let inject_debug_event x : event Sel.Event.t =
+  Sel.Event.map (fun x -> LogEvent x) x
+let inject_debug_events l =
+  List.map inject_debug_event l
+
 let do_initialize id params =
   let Lsp.Types.InitializeParams.{ initializationOptions } = params in
   begin match initializationOptions with
@@ -121,9 +125,8 @@ let do_initialize id params =
     serverInfo = Some server_info;
   } in
   log (fun () -> "---------------- initialized --------------");
-  (* let debug_events = Common.Log.lsp_initialization_done () |> inject_debug_events in *)
-  Ok initialize_result, [Sel.now @@ LspManagerEvent (send_configuration_request ())]
-  (* debug_events@[Sel.now @@ LspManagerEvent (send_configuration_request ())] *)
+  let debug_events = Common.Log.lsp_initialization_done () |> inject_debug_events in
+  Ok initialize_result, debug_events@[Sel.now @@ LspManagerEvent (send_configuration_request ())]
 
 let do_shutdown id params =
   Ok(()), []
@@ -149,15 +152,16 @@ let send_error_notification message =
   let notification = Lsp.Server_notification.ShowMessage params in
   output_json @@ Jsonrpc.Notification.yojson_of_t @@ Lsp.Server_notification.to_jsonrpc notification
 
-let update_view uri st = publish_diagnostics uri st
+let update_view uri (st:state) = publish_diagnostics uri st
 
 let replace_state path st visible = Hashtbl.replace states path { st; visible}
 
 let open_new_document uri text =
-  let st = State.{text} in
+  let document, event = Dm.DocumentManager.create_document text in
+  let st = { document } in
   Hashtbl.add states (DocumentUri.to_path uri) { st ; visible = true; };
   update_view uri st;
-  []
+  [inject_dm_event uri event]
 
 let textDocumentDidOpen params =
   let Lsp.Types.DidOpenTextDocumentParams.{ textDocument = { uri; text } } = params in
@@ -172,7 +176,16 @@ let textDocumentDidChange params =
   let uri = textDocument.uri in
   match Hashtbl.find_opt states (DocumentUri.to_path uri) with
     | None -> log (fun () -> "[textDocumentDidChange] ignoring event on non-existing document"); []
-    | Some { st; visible } -> []
+    | Some { st; visible } ->
+      let mk_text_edit TextDocumentContentChangeEvent.{ range; text } =
+        Option.get range, text
+      in
+      let text_edits = List.map mk_text_edit contentChanges in
+      let document, events = Dm.DocumentManager.apply_text_edits st.document text_edits in
+      let st = { document } in
+      replace_state (DocumentUri.to_path uri) st visible;
+      update_view uri st;
+      inject_dm_events uri events
 
 let textDocumentDidSave params =
   [] (* TODO handle properly *)
@@ -254,7 +267,7 @@ let dispatch_std_request : type a. Jsonrpc.Id.t -> a Lsp.Client_request.t -> (a,
 let dispatch_std_notification = 
   let open Lsp.Client_notification in function
   | TextDocumentDidOpen params -> log (fun () -> "Received notification: textDocument/didOpen");
-    []
+    textDocumentDidOpen params
   | TextDocumentDidChange params -> log (fun () -> "Received notification: textDocument/didChange");
     textDocumentDidChange params
   | TextDocumentDidClose params ->  log (fun () -> "Received notification: textDocument/didClose");
@@ -281,7 +294,7 @@ let handle_lsp_event = function
     begin try
       let json = Jsonrpc.Packet.yojson_of_t rpc in
       let msg = Yojson.Safe.pretty_to_string ~std:true json in
-      log (fun () -> "recieved: " ^ msg);
+      log (fun () -> "received: " ^ msg);
       begin match rpc with
       | Request req ->
           log (fun () -> "ui request: " ^ req.method_);
@@ -317,26 +330,54 @@ let handle_lsp_event = function
   | Send jsonrpc ->
     output_json (Jsonrpc.Packet.yojson_of_t jsonrpc); []
 
-let pr_lsp_event fmt = function
+let pp_lsp_event fmt = function
   | Receive jsonrpc ->
     Format.fprintf fmt "Request"
   | Send jsonrpc ->
     Format.fprintf fmt "Send"
 
-let handle_event = function
+type handled_event = {
+    state : state option;
+    events: event Sel.Event.t list;
+    update_view: bool;
+    notification: Lsp.Server_notification.t option;
+}
+
+let handle_event ev =
+  match ev with
   | LspManagerEvent e -> handle_lsp_event e
+  | DocumentManagerEvent (uri, e) ->
+    begin match Hashtbl.find_opt states (DocumentUri.to_path uri) with
+    | None ->
+      log (fun () -> "ignoring event on non-existing document");
+      []
+    | Some { st; visible } ->
+      let document, events, result = Dm.DocumentManager.handle_dm_event st.document e in
+      begin match result with
+      | None ->
+        let state = { document } in
+        replace_state (DocumentUri.to_path uri) state visible;
+        inject_dm_events uri events
+      | Some new_doc ->
+        let state = { document = new_doc } in
+        replace_state (DocumentUri.to_path uri) state visible;
+        update_view uri st;
+        []
+      end
+    end
   (* | Notification notification ->
     begin match notification with 
     | QueryResultNotification params ->
       output_notification @@ SearchResult params; [inject_notification Bm.SearchQuery.query_feedback]
-    end
+    end *)
   | LogEvent e ->
-    send_rocq_debug e; [inject_debug_event Common.Log.debug] *)
+    (* send_rocq_debug e; *) [inject_debug_event Common.Log.debug]
 
-let pr_event fmt = function
-  | LspManagerEvent e -> pr_lsp_event fmt e
-  (* | Notification _ -> Format.fprintf fmt "notif"
-  | LogEvent _ -> Format.fprintf fmt "debug" *)
+let pp_event fmt = function
+  | LspManagerEvent e -> pp_lsp_event fmt e
+  | DocumentManagerEvent (_, e) -> Dm.DocumentManager.pp_dm_event fmt e
+  (* | Notification _ -> Format.fprintf fmt "notif" *)
+  | LogEvent _ -> Format.fprintf fmt "debug"
 
 let init () =
   [lsp]
